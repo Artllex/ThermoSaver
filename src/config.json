@@ -1,0 +1,7 @@
+{
+  "stoppedThresholdC": 90,
+  "runningThresholdC": 95,
+  "startupDelayMinutes": 15,
+  "deviceMac": "",
+  "testThresholdC": 0
+}

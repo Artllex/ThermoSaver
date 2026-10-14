@@ -1,0 +1,8 @@
+work/
+outputs/
+dist/
+build/
+*.log
+src/lib/
+src/runtime/
+*.tmp

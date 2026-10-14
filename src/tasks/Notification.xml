@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>ThermoSaver: CPU 90C with fan stopped/unknown; 95C with live fan RPM. Arms 15 minutes after Windows startup.</Description>
+    <URI>\ThermoSaver - Notification</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="System">
+      <UserId>S-1-5-32-545</UserId>
+      <LogonType>InteractiveToken</LogonType>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Hidden>true</Hidden>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <Priority>4</Priority>
+    <RestartOnFailure>
+      <Count>99</Count>
+      <Interval>PT1M</Interval>
+    </RestartOnFailure>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+  </Settings>
+  <Triggers>
+    <LogonTrigger>
+      <UserId>S-1-5-32-545</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Actions Context="System">
+    <Exec>
+      <Command>C:\Program Files\ThermoSaver\runtime\pwsh.exe</Command>
+      <Arguments>-NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\ThermoSaver\Run-Notifier.ps1"</Arguments>
+      <WorkingDirectory>C:\Program Files\ThermoSaver</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>

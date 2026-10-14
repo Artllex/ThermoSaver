@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>ThermoSaver: CPU 90C with fan stopped/unknown; 95C with live fan RPM. Arms 15 minutes after Windows startup.</Description>
+    <URI>\ThermoSaver</URI>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="System">
+      <UserId>S-1-5-18</UserId>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Hidden>true</Hidden>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <Priority>2</Priority>
+    <RestartOnFailure>
+      <Count>99</Count>
+      <Interval>PT1M</Interval>
+    </RestartOnFailure>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
+  </Settings>
+  <Triggers>
+    <BootTrigger>
+      <Delay>PT15M</Delay>
+    </BootTrigger>
+    <EventTrigger>
+      <Delay>PT15M</Delay>
+      <Subscription>&lt;QueryList&gt;&lt;Query Id='0' Path='System'&gt;&lt;Select Path='System'&gt;*[System[Provider[@Name='Microsoft-Windows-Kernel-Boot'] and EventID=27] and EventData[Data[@Name='BootType']='0' or Data[@Name='BootType']='1']]&lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
+    </EventTrigger>
+  </Triggers>
+  <Actions Context="System">
+    <Exec>
+      <Command>C:\Program Files\ThermoSaver\runtime\pwsh.exe</Command>
+      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\ThermoSaver\Run-Guard.ps1"</Arguments>
+      <WorkingDirectory>C:\Program Files\ThermoSaver</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
