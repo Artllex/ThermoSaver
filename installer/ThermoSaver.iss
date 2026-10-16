@@ -1,10 +1,11 @@
 #define AppName "ThermoSaver"
-#define AppVersion "0.1.0"
+#define AppVersion "0.1.1"
 [Setup]
 AppId={{38AC09A6-FB03-41AC-9588-6DDCB3BA1AD5}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=ThermoSaver
+LicenseFile=..\LICENSE
 DefaultDirName={autopf}\ThermoSaver
 DefaultGroupName=ThermoSaver
 DisableDirPage=yes
@@ -14,7 +15,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.22000
 OutputDir=..\dist
-OutputBaseFilename=ThermoSaver-Setup-0.1.0
+OutputBaseFilename=ThermoSaver-Setup-0.1.1
 SetupIconFile=..\assets\ThermoSaver.ico
 UninstallDisplayIcon={app}\assets\ThermoSaver.ico
 Compression=lzma2

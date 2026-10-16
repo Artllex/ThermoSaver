@@ -37,8 +37,8 @@
   </Triggers>
   <Actions Context="System">
     <Exec>
-      <Command>C:\Program Files\ThermoSaver\runtime\pwsh.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\ThermoSaver\Run-Watchdog.ps1" -Once</Arguments>
+      <Command>C:\Program Files\ThermoSaver\ThermoSaver.Host.exe</Command>
+      <Arguments>recovery</Arguments>
       <WorkingDirectory>C:\Program Files\ThermoSaver</WorkingDirectory>
     </Exec>
   </Actions>

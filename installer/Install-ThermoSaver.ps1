@@ -6,6 +6,7 @@ $data=Join-Path $env:ProgramData 'ThermoSaver'
 $legacy=Join-Path $env:ProgramFiles 'Flydigi Thermal Guard'
 $configuration=Join-Path $install 'config.json'
 if($ValidateOnly) {
+    if(!(Test-Path (Join-Path $install 'ThermoSaver.Host.exe'))) { throw 'Windowless host is missing.' }
     . (Join-Path $install 'Import-GuardTypes.ps1')
     [Reflection.Assembly]::LoadFrom((Join-Path $install 'lib\LibreHardwareMonitorLib.dll')) | Out-Null
     $icon=[Drawing.Icon]::new((Join-Path $install 'assets\ThermoSaver.ico'))
@@ -50,9 +51,9 @@ foreach($name in @($names+$oldNames)) {
 try {
     foreach($entry in @(@('Main','ThermoSaver'),@('Notification','ThermoSaver - Notification'),@('Watchdog','ThermoSaver - Watchdog'),@('Recovery','ThermoSaver - Recovery'))) {
         [xml]$xml=Get-Content -LiteralPath (Join-Path $install ('tasks\'+$entry[0]+'.xml')) -Raw
-        $xml.Task.Actions.Exec.Command=Join-Path $install 'runtime\pwsh.exe'
+        $xml.Task.Actions.Exec.Command=Join-Path $install 'ThermoSaver.Host.exe'
         $xml.Task.Actions.Exec.WorkingDirectory=$install
-        $xml.Task.Actions.Exec.Arguments=$xml.Task.Actions.Exec.Arguments.Replace('C:\Program Files\ThermoSaver',$install)
+        $xml.Task.Actions.Exec.Arguments=@{Main='guard';Notification='notifier';Watchdog='watchdog';Recovery='recovery'}[$entry[0]]
         $settings=$xml.DocumentElement.SelectSingleNode("*[local-name()='Settings']")
         $enabled=$settings.SelectSingleNode("*[local-name()='Enabled']")
         if(!$enabled) {$enabled=$xml.CreateElement('Enabled',$xml.DocumentElement.NamespaceURI);$settings.AppendChild($enabled) | Out-Null};$enabled.InnerText='true'
@@ -66,7 +67,7 @@ try {
     }
     foreach($name in @('ThermoSaver - Notification','ThermoSaver','ThermoSaver - Watchdog')) { Start-ScheduledTask $name -ErrorAction Stop }
     foreach($name in $oldNames) { Unregister-ScheduledTask $name -Confirm:$false -ErrorAction SilentlyContinue }
-    Write-GuardJson (Join-Path $data 'installation.json') @{installedUtc=[DateTime]::UtcNow.ToString('o');version='0.1.0';name='ThermoSaver';userSid=$userSid;configuration=$config}
+    Write-GuardJson (Join-Path $data 'installation.json') @{installedUtc=[DateTime]::UtcNow.ToString('o');version='0.1.1';name='ThermoSaver';userSid=$userSid;configuration=$config}
 } catch {
     foreach($name in $names) { Disable-ScheduledTask $name -ErrorAction SilentlyContinue | Out-Null;Stop-ScheduledTask $name -ErrorAction SilentlyContinue }
     foreach($name in $oldNames) { Enable-ScheduledTask $name -ErrorAction SilentlyContinue | Out-Null;Start-ScheduledTask $name -ErrorAction SilentlyContinue }

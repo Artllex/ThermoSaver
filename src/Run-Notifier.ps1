@@ -1,5 +1,5 @@
 param([string]$DataDirectory = (Join-Path $env:ProgramData 'ThermoSaver'), [int]$DemoSeconds = 0,
-    [ValidateSet('None','Cancel','Hibernate')][string]$DemoClick = 'None')
+    [ValidateSet('None','Cancel','Hibernate')][string]$DemoClick = 'None', [switch]$StartupPreview)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'IO-Guard.ps1')
 [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'Normal'
@@ -88,12 +88,45 @@ $form.Add_FormClosing({
 $timer = [Windows.Forms.Timer]::new()
 $timer.Interval = 250
 $context = [Windows.Forms.ApplicationContext]::new()
+$script:startupChecked = $false
+$script:startupCard = $null
+function Show-StartupCard {
+    $references = @(Get-ChildItem (Join-Path $PSHOME 'ref') -Filter '*.dll' | ForEach-Object FullName)
+    $references += [Windows.Forms.Form].Assembly.Location
+    $references += [Drawing.Font].Assembly.Location
+    $references += Join-Path $PSHOME 'System.Windows.Forms.Primitives.dll'
+    Add-Type -Path (Join-Path $PSScriptRoot 'StartupCard.cs') -ReferencedAssemblies $references
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try { $logonId = [ThermoSaverStartupCard]::LogonId($identity.Token) } finally { $identity.Dispose() }
+    $markerPath = Join-Path $requests 'startup-notification.json'
+    if (!$StartupPreview -and (Test-Path $markerPath)) {
+        $marker = Read-GuardJson $markerPath
+        if ($marker.logonId -eq $logonId) { return }
+    }
+    $config = Read-GuardJson (Join-Path $PSScriptRoot 'config.json')
+    $text = 'Ochrona temperatury włączy się 15 min po starcie systemu.'
+    $statusPath = Join-Path $DataDirectory 'status.json'
+    if (Test-Path $statusPath) {
+        $status = Read-GuardJson $statusPath
+        $fresh = ([DateTime]::UtcNow - ([DateTime]$status.updatedUtc).ToUniversalTime()).TotalSeconds -le 10
+        if ($fresh -and $status.state -eq 'armed') { $text = 'Ochrona temperatury jest aktywna.' }
+        elseif ($fresh -and $status.state -notin @('waiting','armed')) { $text = 'Odczyt temperatury jest chwilowo niedostępny.' }
+    }
+    $text += "`nProgi: $($config.stoppedThresholdC)°C / $($config.runningThresholdC)°C."
+    $script:startupCard = [ThermoSaverStartupCard]::new($text,(Join-Path $PSScriptRoot 'assets\ThermoSaver.ico'))
+    $script:startupCard.Show()
+    if (!$StartupPreview) { Write-GuardJson $markerPath @{logonId=$logonId;shownUtc=[DateTime]::UtcNow.ToString('o')} }
+}
 $started = [DateTime]::UtcNow
 $script:lastHeartbeat = [DateTime]::MinValue
 $script:demoClicked = $false
 $timer.Add_Tick({
     try {
         $now = [DateTime]::UtcNow
+        if (!$script:startupChecked) {
+            $script:startupChecked = $true
+            if ($DemoSeconds -eq 0 -or $StartupPreview) { Show-StartupCard }
+        }
         if (($now - $script:lastHeartbeat).TotalSeconds -ge 5) {
             [IO.File]::WriteAllText((Join-Path $requests 'ui-status.json'),(@{updatedUtc=$now.ToString('o');sessionId=[Diagnostics.Process]::GetCurrentProcess().SessionId;visible=[GuardWindowVisibility]::IsWindowVisible($form.Handle)} | ConvertTo-Json))
             $script:lastHeartbeat = $now
@@ -148,5 +181,6 @@ try {
     [Windows.Forms.Application]::Run($context)
 } finally {
     $timer.Stop();$timer.Dispose();$script:allowClose=$true;$form.Dispose();$context.Dispose()
+    if ($null -ne $script:startupCard) { $script:startupCard.Dispose() }
     $mutex.ReleaseMutex();$mutex.Dispose()
 }

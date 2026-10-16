@@ -34,8 +34,8 @@
   </Triggers>
   <Actions Context="System">
     <Exec>
-      <Command>C:\Program Files\ThermoSaver\runtime\pwsh.exe</Command>
-      <Arguments>-NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Program Files\ThermoSaver\Run-Notifier.ps1"</Arguments>
+      <Command>C:\Program Files\ThermoSaver\ThermoSaver.Host.exe</Command>
+      <Arguments>notifier</Arguments>
       <WorkingDirectory>C:\Program Files\ThermoSaver</WorkingDirectory>
     </Exec>
   </Actions>
