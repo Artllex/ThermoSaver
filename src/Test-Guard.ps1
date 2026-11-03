@@ -59,11 +59,11 @@ $gate = [ThermoSaver.AlertGate]::new(0)
 $null = $gate.Advance($hot,$now)
 $alertId = $gate.AlertId
 Assert ($gate.Advance($hot,$now.AddSeconds(3),'cancel',$alertId) -eq 'cancelled') 'Cancel accepted'
-Assert ($gate.Advance($hot,$now.AddSeconds(62)) -eq 'cooldown') 'Cancel suppresses warning for a minute'
-Assert ($gate.Advance($hot,$now.AddSeconds(63)) -eq 'alert') 'Warning repeats exactly one minute after cancel'
+Assert ($gate.Advance($hot,$now.AddSeconds(902)) -eq 'cooldown') 'Cancel suppresses warning for 15 minutes'
+Assert ($gate.Advance($hot,$now.AddSeconds(903)) -eq 'alert') 'Warning repeats exactly 15 minutes after cancel'
 Assert ($gate.AlertId -ne $alertId) 'New warning has new ID'
-Assert ($gate.Advance($hot,$now.AddSeconds(64),'cancel',$alertId) -eq 'countdown') 'Old response cannot cancel new warning'
-Assert ($gate.Advance($hot,$now.AddSeconds(65),'hibernate',$gate.AlertId) -eq 'hibernate') 'Hibernate button accepted immediately'
+Assert ($gate.Advance($hot,$now.AddSeconds(904),'cancel',$alertId) -eq 'countdown') 'Old response cannot cancel new warning'
+Assert ($gate.Advance($hot,$now.AddSeconds(905),'hibernate',$gate.AlertId) -eq 'hibernate') 'Hibernate button accepted immediately'
 $gate = [ThermoSaver.AlertGate]::new(0)
 $null = $gate.Advance($hot,$now)
 Assert ($gate.Advance($cool,$now.AddSeconds(10)) -eq 'clear') 'Cooling cancels countdown'
@@ -79,10 +79,10 @@ $null=$gate.Advance($invalidCpu,$now.AddSeconds(2))
 Assert ($gate.Advance($hot,$now.AddSeconds(3)) -eq 'cooldown') 'CPU read failure does not undo cancellation'
 $restored=[ThermoSaver.AlertGate]::new(0)
 $restored.Restore($gate.AlertId,$gate.DeadlineUtc,$gate.RetryAfterUtc)
-Assert ($restored.Advance($hot,$now.AddSeconds(5)) -eq 'cooldown') 'Restart retains cancellation minute'
-$null=$gate.Advance($hot,$now.AddSeconds(61))
+Assert ($restored.Advance($hot,$now.AddSeconds(5)) -eq 'cooldown') 'Restart retains cancellation period'
+$null=$gate.Advance($hot,$now.AddSeconds(901))
 $restored.Restore($gate.AlertId,$gate.DeadlineUtc,$gate.RetryAfterUtc)
-Assert ($restored.Advance($hot,$now.AddSeconds(81)) -eq 'hibernate') 'Restart retains existing countdown deadline'
+Assert ($restored.Advance($hot,$now.AddSeconds(921)) -eq 'hibernate') 'Restart retains existing countdown deadline'
 Assert ([ThermoSaver.Policy]::Evaluate(70.01,$stopped,$now,$armedAfter,70,95).Hibernate) 'New stopped-fan threshold 70'
 Assert (![ThermoSaver.Policy]::Evaluate(69.99,$stopped,$now,$armedAfter,70,95).Hibernate) 'Below new stopped-fan threshold'
 Assert (![ThermoSaver.Policy]::Evaluate(70.01,$running,$now,$armedAfter,70,95).Hibernate) 'Running fan retains 95 threshold'
@@ -104,4 +104,35 @@ $null=$gate.Advance($hot,$now)
 Assert ($gate.Advance($hot,$now.AddSeconds(10)) -eq 'qualifying') 'Missing samples do not prove continuous heat'
 $null=$gate.Advance($invalidCpu,$now.AddSeconds(11))
 Assert ($gate.OverThresholdSinceUtc -eq [DateTime]::MinValue) 'Invalid CPU sample resets continuity'
+$gate=[ThermoSaver.AlertGate]::new(0)
+$null=$gate.Advance($hot,$now)
+$null=$gate.Advance($hot,$now.AddSeconds(1),'cancel',$gate.AlertId)
+$null=$gate.Advance($cool,$now.AddSeconds(2))
+Assert ($gate.Advance($hot,$now.AddSeconds(3)) -eq 'cooldown') 'Cooling and reheating do not undo 15-minute suppression'
+Assert (($gate.RetryAfterUtc-$now).TotalSeconds -eq 901) 'Cancel deadline remains intact'
+$gate.Suspend()
+Assert ($null -eq $gate.AlertId -and $gate.OverThresholdSinceUtc -eq [DateTime]::MinValue) 'Pause clears pending warning'
+Assert ($gate.Advance($hot,$now.AddSeconds(900)) -eq 'cooldown') 'Pause and resume do not undo cancellation'
+Assert ($gate.Advance($hot,$now.AddSeconds(901)) -eq 'alert') 'Warning allowed at the full 15-minute boundary'
+$gate=[ThermoSaver.AlertGate]::new()
+0..10 | ForEach-Object { $null=$gate.Advance($hot,$now.AddSeconds($_)) }
+$gate.Suspend()
+Assert ($gate.Advance($hot,$now.AddSeconds(11)) -eq 'qualifying') 'Resume starts a fresh continuous qualification'
+. (Join-Path $PSScriptRoot 'IO-Guard.ps1')
+. (Join-Path $PSScriptRoot 'Control-Guard.ps1')
+$controlTest=Join-Path ([IO.Path]::GetTempPath()) ('ThermoSaver-Control-'+[Guid]::NewGuid().ToString('N'))
+$null=[IO.Directory]::CreateDirectory((Join-Path $controlTest 'requests'))
+try {
+    Assert (!(Get-GuardPaused $controlTest)) 'No pause by default'
+    Set-GuardPaused $controlTest $true
+    Assert (Get-GuardPaused $controlTest) 'Pause is persisted'
+    Set-GuardPaused $controlTest $false
+    Assert (!(Get-GuardPaused $controlTest)) 'Resume clears pause'
+    Write-GuardJson (Join-Path $controlTest 'requests\control-state.json') @{paused='true'}
+    Assert (!(Get-GuardPaused $controlTest)) 'Malformed pause flag cannot disable protection'
+} finally {
+    Remove-Item -LiteralPath (Join-Path $controlTest 'requests\control-state.json') -ErrorAction SilentlyContinue
+    [IO.Directory]::Delete((Join-Path $controlTest 'requests'))
+    [IO.Directory]::Delete($controlTest)
+}
 Write-Output "$tests tests passed. No hibernation performed."

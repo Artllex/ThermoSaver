@@ -28,10 +28,21 @@ switch ($Action) {
         Disable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null
         Stop-ScheduledTask -TaskName $name -ErrorAction Stop
         Disable-ScheduledTask -TaskName $notifier -ErrorAction SilentlyContinue | Out-Null
+        try {
+            $exitEvent=[Threading.EventWaitHandle]::OpenExisting('Local\ThermoSaverNotifierExit')
+            $exitEvent.Set() | Out-Null
+            $exitEvent.Dispose()
+            Start-Sleep -Milliseconds 500
+        } catch { }
         Stop-ScheduledTask -TaskName $notifier -ErrorAction SilentlyContinue
-        Write-GuardJson (Join-Path $env:ProgramData 'ThermoSaver\alert.json') @{active=$false}
+        $alertPath=Join-Path $env:ProgramData 'ThermoSaver\alert.json'
+        $saved=if(Test-Path $alertPath){Read-GuardJson $alertPath}else{$null}
+        $retry=if($saved.retryAfterUtc){$saved.retryAfterUtc}else{[DateTime]::MinValue.ToString('o')}
+        Write-GuardJson $alertPath @{active=$false;alertId=$null;deadlineUtc=[DateTime]::MinValue.ToString('o');retryAfterUtc=$retry;updatedUtc=[DateTime]::UtcNow.ToString('o')}
     }
     'Enable' {
+        . (Join-Path $PSScriptRoot 'Control-Guard.ps1')
+        Set-GuardPaused (Join-Path $env:ProgramData 'ThermoSaver') $false
         Enable-ScheduledTask -TaskName $notifier -ErrorAction Stop | Out-Null
         Start-ScheduledTask -TaskName $notifier -ErrorAction Stop
         Enable-ScheduledTask -TaskName $name -ErrorAction Stop | Out-Null

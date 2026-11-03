@@ -1,7 +1,8 @@
 param([string]$DataDirectory = (Join-Path $env:ProgramData 'ThermoSaver'), [int]$DemoSeconds = 0,
-    [ValidateSet('None','Cancel','Hibernate')][string]$DemoClick = 'None', [switch]$StartupPreview)
+    [ValidateSet('None','Cancel','Hibernate','Tray')][string]$DemoClick = 'None', [switch]$StartupPreview)
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'IO-Guard.ps1')
+. (Join-Path $PSScriptRoot 'Control-Guard.ps1')
 [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'Normal'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -15,6 +16,7 @@ public static class GuardWindowVisibility {
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr window,IntPtr after,int x,int y,int width,int height,uint flags);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     public static void Reveal(IntPtr window) {
         ShowWindow(window,5);
         SetWindowPos(window,new IntPtr(-1),0,0,0,0,0x43);
@@ -88,14 +90,47 @@ $form.Add_FormClosing({
 $timer = [Windows.Forms.Timer]::new()
 $timer.Interval = 250
 $context = [Windows.Forms.ApplicationContext]::new()
+$references = @(Get-ChildItem (Join-Path $PSHOME 'ref') -Filter '*.dll' | ForEach-Object FullName)
+$references += [Windows.Forms.Form].Assembly.Location
+$references += [Drawing.Font].Assembly.Location
+$references += Join-Path $PSHOME 'System.Windows.Forms.Primitives.dll'
+Add-Type -Path (Join-Path $PSScriptRoot 'StartupCard.cs') -ReferencedAssemblies $references
+$exitEventName=if($DemoSeconds -gt 0){'Local\ThermoSaverNotifierExit-'+[Guid]::NewGuid().ToString('N')}else{'Local\ThermoSaverNotifierExit'}
+$exitEvent=[Threading.EventWaitHandle]::new($false,[Threading.EventResetMode]::AutoReset,$exitEventName)
+$tray=[Windows.Forms.NotifyIcon]::new()
+$tray.Icon=$form.Icon
+$tray.Text='ThermoSaver'
+$trayMenu=[ThermoSaverTrayMenu]::new()
+$pauseItem=[Windows.Forms.ToolStripMenuItem]::new('Wstrzymaj kontrolę')
+$disableItem=[Windows.Forms.ToolStripMenuItem]::new('Wyłącz')
+$null=$trayMenu.Items.Add($pauseItem)
+$null=$trayMenu.Items.Add($disableItem)
+$tray.Add_MouseUp({
+    param($sender,$eventArgs)
+    if($eventArgs.Button -in @([Windows.Forms.MouseButtons]::Left,[Windows.Forms.MouseButtons]::Right)) {
+        if(!$trayMenu.Visible) { $trayMenu.Show([Windows.Forms.Cursor]::Position) }
+    }
+})
+$tray.Visible=($DemoSeconds -eq 0 -or $DemoClick -eq 'Tray')
+$pauseItem.Add_Click({
+    try {
+        $pause=!(Get-GuardPaused $DataDirectory)
+        Set-GuardPaused $DataDirectory $pause
+        if($pause) { $form.Hide() }
+    } catch { [Windows.Forms.MessageBox]::Show('Nie udało się zmienić stanu kontroli.','ThermoSaver') | Out-Null }
+})
+$disableItem.Add_Click({
+    try {
+        $info=[Diagnostics.ProcessStartInfo]::new((Join-Path $PSScriptRoot 'ThermoSaver.Host.exe'),'disable')
+        $info.UseShellExecute=$true
+        $info.Verb='runas'
+        $info.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+        $null=[Diagnostics.Process]::Start($info)
+    } catch { if($_.Exception.NativeErrorCode -ne 1223 -and $_.Exception.InnerException.NativeErrorCode -ne 1223) { [Windows.Forms.MessageBox]::Show('Nie udało się wyłączyć ochrony.','ThermoSaver') | Out-Null } }
+})
 $script:startupChecked = $false
 $script:startupCard = $null
 function Show-StartupCard {
-    $references = @(Get-ChildItem (Join-Path $PSHOME 'ref') -Filter '*.dll' | ForEach-Object FullName)
-    $references += [Windows.Forms.Form].Assembly.Location
-    $references += [Drawing.Font].Assembly.Location
-    $references += Join-Path $PSHOME 'System.Windows.Forms.Primitives.dll'
-    Add-Type -Path (Join-Path $PSScriptRoot 'StartupCard.cs') -ReferencedAssemblies $references
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     try { $logonId = [ThermoSaverStartupCard]::LogonId($identity.Token) } finally { $identity.Dispose() }
     $markerPath = Join-Path $requests 'startup-notification.json'
@@ -113,6 +148,7 @@ function Show-StartupCard {
         elseif ($fresh -and $status.state -notin @('waiting','armed')) { $text = 'Odczyt temperatury jest chwilowo niedostępny.' }
     }
     $text += "`nProgi: $($config.stoppedThresholdC)°C / $($config.runningThresholdC)°C."
+    if(Get-GuardPaused $DataDirectory) { $text="Kontrola temperatury jest wstrzymana.`nWznów ją z menu ikony w zasobniku." }
     $script:startupCard = [ThermoSaverStartupCard]::new($text,(Join-Path $PSScriptRoot 'assets\ThermoSaver.ico'))
     $script:startupCard.Show()
     if (!$StartupPreview) { Write-GuardJson $markerPath @{logonId=$logonId;shownUtc=[DateTime]::UtcNow.ToString('o')} }
@@ -120,9 +156,54 @@ function Show-StartupCard {
 $started = [DateTime]::UtcNow
 $script:lastHeartbeat = [DateTime]::MinValue
 $script:demoClicked = $false
+$script:trayTestStage = 0
+$script:lastTrayPaused = $null
 $timer.Add_Tick({
     try {
         $now = [DateTime]::UtcNow
+        if($exitEvent.WaitOne(0)) { $context.ExitThread(); return }
+        if ($DemoSeconds -gt 0 -and ($now - $started).TotalSeconds -ge $DemoSeconds) { $context.ExitThread(); return }
+        if($DemoSeconds -gt 0 -and $DemoClick -eq 'Tray') {
+            $elapsed=($now-$started).TotalSeconds
+            if($script:trayTestStage -eq 0 -and $elapsed -ge 2) {
+                $pauseItem.PerformClick()
+                if(!(Get-GuardPaused $DataDirectory)) { throw 'Tray pause did not take effect.' }
+                $script:trayTestStage=1
+            } elseif($script:trayTestStage -eq 1 -and $elapsed -ge 4) {
+                $pauseItem.PerformClick()
+                if(Get-GuardPaused $DataDirectory) { throw 'Tray resume did not take effect.' }
+                $script:trayTestStage=2
+            } elseif($script:trayTestStage -eq 2 -and $elapsed -ge 5) {
+                $script:trayForeground=[GuardWindowVisibility]::GetForegroundWindow()
+                $mouseUp=[Windows.Forms.NotifyIcon].GetMethod('OnMouseUp',[Reflection.BindingFlags]'Instance,NonPublic')
+                $null=$mouseUp.Invoke($tray,@([Windows.Forms.MouseEventArgs]::new([Windows.Forms.MouseButtons]::Left,1,0,0,0)))
+                if(!$trayMenu.Visible -or [GuardWindowVisibility]::GetForegroundWindow() -ne $script:trayForeground) { throw 'Left click did not open menu without activation.' }
+                $bitmap=[Drawing.Bitmap]::new($trayMenu.Width,$trayMenu.Height)
+                $trayMenu.DrawToBitmap($bitmap,[Drawing.Rectangle]::new(0,0,$trayMenu.Width,$trayMenu.Height))
+                $bitmap.Save((Join-Path $DataDirectory 'tray-menu.png'))
+                $bitmap.Dispose()
+                $script:trayTestStage=3
+            } elseif($script:trayTestStage -eq 3 -and $elapsed -ge 7) {
+                $trayMenu.Close()
+                $script:trayTestStage=4
+            } elseif($script:trayTestStage -eq 4 -and $elapsed -ge 8) {
+                $script:trayForeground=[GuardWindowVisibility]::GetForegroundWindow()
+                $mouseUp=[Windows.Forms.NotifyIcon].GetMethod('OnMouseUp',[Reflection.BindingFlags]'Instance,NonPublic')
+                $null=$mouseUp.Invoke($tray,@([Windows.Forms.MouseEventArgs]::new([Windows.Forms.MouseButtons]::Right,1,0,0,0)))
+                if(!$trayMenu.Visible -or [GuardWindowVisibility]::GetForegroundWindow() -ne $script:trayForeground) { throw 'Right click did not open menu without activation.' }
+                $script:trayTestStage=5
+            } elseif($script:trayTestStage -eq 5 -and $elapsed -ge 10) {
+                Write-GuardJson (Join-Path $DataDirectory 'tray-test.json') @{paused=$true;resumed=$true;visible=$tray.Visible;leftClick=$true;rightClick=$true;foregroundPreserved=$true;menu=@($pauseItem.Text,$disableItem.Text)}
+                $script:trayTestStage=6
+            }
+        }
+        $paused=Get-GuardPaused $DataDirectory
+        if($script:lastTrayPaused -ne $paused -and !$trayMenu.Visible) {
+            $pauseItem.Text=if($paused){'Wznów kontrolę'}else{'Wstrzymaj kontrolę'}
+            $pauseItem.Checked=$paused
+            $tray.Text=if($paused){'ThermoSaver - kontrola wstrzymana'}else{'ThermoSaver - kontrola temperatury'}
+            $script:lastTrayPaused=$paused
+        }
         if (!$script:startupChecked) {
             $script:startupChecked = $true
             if ($DemoSeconds -eq 0 -or $StartupPreview) { Show-StartupCard }
@@ -132,6 +213,7 @@ $timer.Add_Tick({
             $script:lastHeartbeat = $now
         }
         if ($DemoSeconds -gt 0 -and ($now - $started).TotalSeconds -ge $DemoSeconds) { $context.ExitThread(); return }
+        if($paused) { $form.Hide(); return }
         if (!(Test-Path -LiteralPath $alertPath)) { $form.Hide(); return }
         $alert = Read-GuardJson $alertPath
         $deadline = [DateTime]$alert.deadlineUtc
@@ -174,6 +256,7 @@ $timer.Add_Tick({
         }
     } catch {
         Add-Content -LiteralPath (Join-Path $requests 'notifier-errors.log') -Value $_.Exception.Message
+        if($DemoSeconds -gt 0) { $context.ExitThread() }
     }
 })
 try {
@@ -181,6 +264,8 @@ try {
     [Windows.Forms.Application]::Run($context)
 } finally {
     $timer.Stop();$timer.Dispose();$script:allowClose=$true;$form.Dispose();$context.Dispose()
+    $tray.Visible=$false;$tray.Dispose();$trayMenu.Dispose()
+    $exitEvent.Dispose()
     if ($null -ne $script:startupCard) { $script:startupCard.Dispose() }
     $mutex.ReleaseMutex();$mutex.Dispose()
 }

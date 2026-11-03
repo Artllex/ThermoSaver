@@ -2,6 +2,116 @@ using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Microsoft.Win32;
+
+public sealed class ThermoSaverMenuColors : ProfessionalColorTable
+{
+    readonly Color background, selected, border;
+    public ThermoSaverMenuColors(bool dark)
+    {
+        UseSystemColors = false;
+        background = dark ? Color.FromArgb(32,32,32) : Color.FromArgb(249,249,249);
+        selected = dark ? Color.FromArgb(55,55,55) : Color.FromArgb(229,239,249);
+        border = dark ? Color.FromArgb(75,75,75) : Color.FromArgb(200,200,200);
+    }
+    public override Color ToolStripDropDownBackground { get { return background; } }
+    public override Color ImageMarginGradientBegin { get { return background; } }
+    public override Color ImageMarginGradientMiddle { get { return background; } }
+    public override Color ImageMarginGradientEnd { get { return background; } }
+    public override Color MenuBorder { get { return border; } }
+    public override Color MenuItemSelected { get { return selected; } }
+    public override Color MenuItemSelectedGradientBegin { get { return selected; } }
+    public override Color MenuItemSelectedGradientEnd { get { return selected; } }
+    public override Color MenuItemBorder { get { return selected; } }
+    public override Color CheckBackground { get { return selected; } }
+    public override Color CheckSelectedBackground { get { return selected; } }
+    public override Color CheckPressedBackground { get { return selected; } }
+}
+
+public sealed class ThermoSaverMenuRenderer : ToolStripProfessionalRenderer
+{
+    public ThermoSaverMenuRenderer(bool dark) : base(new ThermoSaverMenuColors(dark)) { RoundedEdges = false; }
+    protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e)
+    {
+        ControlPaint.DrawMenuGlyph(e.Graphics, e.ImageRectangle, MenuGlyph.Checkmark, e.Item.ForeColor, e.Item.BackColor);
+    }
+}
+
+public sealed class ThermoSaverTrayMenu : ContextMenuStrip
+{
+    readonly Timer outsideClick = new Timer { Interval = 50 };
+    bool? appliedTheme;
+    public bool DarkTheme { get { return appliedTheme == true; } }
+    [DllImport("user32.dll")] static extern short GetAsyncKeyState(int key);
+    public ThermoSaverTrayMenu()
+    {
+        Opening += delegate { RefreshSystemTheme(); };
+        ItemAdded += delegate(object sender, ToolStripItemEventArgs e) { StyleItem(e.Item); };
+        RefreshSystemTheme();
+        Opened += delegate { outsideClick.Start(); };
+        Closed += delegate { outsideClick.Stop(); };
+        outsideClick.Tick += delegate
+        {
+            bool outside = !Bounds.Contains(Cursor.Position);
+            if (GetAsyncKeyState(27) < 0 || (outside && (GetAsyncKeyState(1) < 0 || GetAsyncKeyState(2) < 0))) Close();
+        };
+    }
+    void StyleItem(ToolStripItem item)
+    {
+        float scale = DeviceDpi / 96f;
+        item.Padding = new Padding((int)(6*scale),(int)(3*scale),(int)(6*scale),(int)(3*scale));
+        item.ForeColor = ForeColor;
+        item.BackColor = BackColor;
+    }
+    public void RefreshSystemTheme()
+    {
+        bool dark = false;
+        try
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+            {
+                object value = key == null ? null : key.GetValue("SystemUsesLightTheme", key.GetValue("AppsUseLightTheme", 1));
+                dark = value != null && Convert.ToInt32(value) == 0;
+            }
+        }
+        catch { }
+        ApplyTheme(dark);
+    }
+    public void ApplyTheme(bool dark)
+    {
+        appliedTheme = dark;
+        if (SystemInformation.HighContrast)
+        {
+            RenderMode = ToolStripRenderMode.System;
+            BackColor = SystemColors.Menu;
+            ForeColor = SystemColors.MenuText;
+        }
+        else
+        {
+            Renderer = new ThermoSaverMenuRenderer(dark);
+            BackColor = dark ? Color.FromArgb(32,32,32) : Color.FromArgb(249,249,249);
+            ForeColor = dark ? Color.FromArgb(240,240,240) : Color.FromArgb(32,32,32);
+        }
+        int margin = Math.Max(1,(int)(3 * DeviceDpi / 96f));
+        Padding = new Padding(margin);
+        foreach (ToolStripItem item in Items) StyleItem(item);
+        Invalidate();
+    }
+    protected override CreateParams CreateParams
+    {
+        get { var value = base.CreateParams; value.ExStyle |= 0x08000000; return value; }
+    }
+    protected override void WndProc(ref Message message)
+    {
+        if (message.Msg == 0x21) { message.Result = new IntPtr(3); return; }
+        base.WndProc(ref message);
+    }
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) outsideClick.Dispose();
+        base.Dispose(disposing);
+    }
+}
 
 public sealed class ThermoSaverStartupCard : Form
 {

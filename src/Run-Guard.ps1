@@ -2,6 +2,7 @@ param([switch]$DryRun, [int]$ProbeSeconds = 0)
 $ErrorActionPreference = 'Stop'
 [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'AboveNormal'
 . (Join-Path $PSScriptRoot 'IO-Guard.ps1')
+. (Join-Path $PSScriptRoot 'Control-Guard.ps1')
 $dataDirectory = Join-Path $env:ProgramData 'ThermoSaver'
 [IO.Directory]::CreateDirectory($dataDirectory) | Out-Null
 $statusName = if ($DryRun) { 'probe-status.json' } else { 'status.json' }
@@ -43,7 +44,8 @@ try {
     $armedAfter = $startEvent.TimeCreated.ToUniversalTime().AddMinutes($config.startupDelayMinutes)
     Write-GuardLog "Starting; protection at $($armedAfter.ToString('o')); dryRun=$DryRun; identity=$($identity.Name)"
     while ([DateTime]::UtcNow -lt $armedAfter) {
-        Save-Status ([ordered]@{state='waiting';armedAfterUtc=$armedAfter.ToString('o');updatedUtc=[DateTime]::UtcNow.ToString('o')})
+        $waitingState=if(Get-GuardPaused $dataDirectory){'paused'}else{'waiting'}
+        Save-Status ([ordered]@{state=$waitingState;armedAfterUtc=$armedAfter.ToString('o');updatedUtc=[DateTime]::UtcNow.ToString('o')})
         Start-Sleep -Seconds 1
     }
     $driver = Get-Service -Name PawnIO -ErrorAction Stop
@@ -99,16 +101,17 @@ try {
                 Remove-Item -LiteralPath $requestPath -Force
             } catch { Write-GuardLog ('Invalid notification response: ' + $_.Exception.Message) }
         }
-        $alertAction = $alertGate.Advance($decision,$now,$request.action,$request.alertId)
+        $paused=Get-GuardPaused $dataDirectory
+        $alertAction = if($paused) { $alertGate.Suspend(); 'paused' } else { $alertGate.Advance($decision,$now,$request.action,$request.alertId) }
         if ($alertAction -eq 'alert') { Write-GuardLog "Warning opened: CPU=$temperature C, threshold=$($decision.Threshold) C; countdown=20 seconds" }
-        if ($alertAction -eq 'cancelled') { Write-GuardLog 'Warning cancelled; retry in 60 seconds if still above threshold.' }
+        if ($alertAction -eq 'cancelled') { Write-GuardLog 'Warning cancelled; suppress further warnings for 15 minutes.' }
         Save-Alert @{
             active=($null -ne $alertGate.AlertId);alertId=$alertGate.AlertId
             deadlineUtc=$alertGate.DeadlineUtc.ToString('o');cpuC=$temperature
             thresholdC=$decision.Threshold;testMode=($config.testThresholdC -eq 70)
             retryAfterUtc=$alertGate.RetryAfterUtc.ToString('o');updatedUtc=$now.ToString('o')
         }
-        $state = if ($decision.CpuValid) { 'armed' } else { 'cpu-unavailable' }
+        $state = if ($paused) { 'paused' } elseif ($decision.CpuValid) { 'armed' } else { 'cpu-unavailable' }
         if ($decision.CpuValid) { $lastValidCpu = $now }
         $fanState = if (!$decision.FanKnown) { 'unknown' } elseif ($decision.FanRunning) { 'running' } else { 'stopped' }
         $status = [ordered]@{
@@ -131,6 +134,7 @@ try {
         }
         if (($now - $lastValidCpu).TotalSeconds -gt 60) { throw 'CPU readings unavailable for 60 seconds; restarting monitor.' }
         if ($alertAction -eq 'hibernate') {
+            if(Get-GuardPaused $dataDirectory) { $alertGate.Suspend(); Save-Alert @{active=$false}; continue }
             Write-GuardLog "Hibernating: CPU=$temperature C, fan=$fanState, limit=$($decision.Threshold) C"
             if (!$DryRun) {
                 $status.state = 'hibernating'

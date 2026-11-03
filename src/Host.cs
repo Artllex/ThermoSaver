@@ -37,6 +37,7 @@ internal static class Host
             {
                 case "guard": script = "Run-Guard.ps1"; break;
                 case "notifier": script = "Run-Notifier.ps1"; break;
+                case "disable": script = "Manage-Guard.ps1"; break;
                 case "watchdog": case "recovery": script = "Run-Watchdog.ps1"; break;
                 default: return 2;
             }
@@ -44,6 +45,7 @@ internal static class Host
             var info = new ProcessStartInfo(Path.Combine(root, "runtime", "pwsh.exe"));
             info.Arguments = "-NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -File \"" + Path.Combine(root, script) + "\"";
             if (args[0] == "recovery") info.Arguments += " -Once";
+            if (args[0] == "disable") info.Arguments += " -Action Disable";
             info.WorkingDirectory = root;
             info.UseShellExecute = false;
             info.CreateNoWindow = true;

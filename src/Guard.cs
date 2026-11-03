@@ -70,6 +70,12 @@ namespace ThermoSaver
         public string AlertId { get; private set; }
         public DateTime DeadlineUtc { get; private set; }
         public DateTime RetryAfterUtc { get; private set; }
+        public void Suspend()
+        {
+            AlertId = null;
+            OverThresholdSinceUtc = DateTime.MinValue;
+            lastObservation = DateTime.MinValue;
+        }
         public void Restore(string alertId, DateTime deadline, DateTime retryAfter)
         {
             AlertId = string.IsNullOrEmpty(alertId) ? null : alertId;
@@ -96,7 +102,6 @@ namespace ThermoSaver
             {
                 OverThresholdSinceUtc = DateTime.MinValue;
                 AlertId = null;
-                RetryAfterUtc = DateTime.MinValue;
                 return "clear";
             }
             if (OverThresholdSinceUtc == DateTime.MinValue) OverThresholdSinceUtc = now;
@@ -106,7 +111,7 @@ namespace ThermoSaver
                 if (action == "cancel")
                 {
                     AlertId = null;
-                    RetryAfterUtc = now.AddSeconds(60);
+                    RetryAfterUtc = now.AddMinutes(15);
                     return "cancelled";
                 }
                 if (action == "hibernate")

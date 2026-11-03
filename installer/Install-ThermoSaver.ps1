@@ -67,7 +67,7 @@ try {
     }
     foreach($name in @('ThermoSaver - Notification','ThermoSaver','ThermoSaver - Watchdog')) { Start-ScheduledTask $name -ErrorAction Stop }
     foreach($name in $oldNames) { Unregister-ScheduledTask $name -Confirm:$false -ErrorAction SilentlyContinue }
-    Write-GuardJson (Join-Path $data 'installation.json') @{installedUtc=[DateTime]::UtcNow.ToString('o');version='0.1.1';name='ThermoSaver';userSid=$userSid;configuration=$config}
+    Write-GuardJson (Join-Path $data 'installation.json') @{installedUtc=[DateTime]::UtcNow.ToString('o');version='0.1.2';name='ThermoSaver';userSid=$userSid;configuration=$config}
 } catch {
     foreach($name in $names) { Disable-ScheduledTask $name -ErrorAction SilentlyContinue | Out-Null;Stop-ScheduledTask $name -ErrorAction SilentlyContinue }
     foreach($name in $oldNames) { Enable-ScheduledTask $name -ErrorAction SilentlyContinue | Out-Null;Start-ScheduledTask $name -ErrorAction SilentlyContinue }

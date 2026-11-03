@@ -21,7 +21,10 @@ The installer is unsigned and may trigger a Windows SmartScreen warning.
   A reading at or below the threshold resets this qualification period.
 - The warning counts down 20 seconds before real hibernation. Its CPU reading updates
   every 5 seconds. You can hibernate immediately or cancel.
-- Cancel postpones the next warning by one minute while the temperature remains high.
+- Cancel suppresses warnings for 15 minutes, including cooling/reheating and process recovery.
+- The tray menu pauses/resumes temperature control. Pause remains until explicitly resumed.
+  Turn off stops the application and its watchdog tasks (Windows administrator approval).
+  Enable protection from the Start menu to start it again.
 - Monitoring runs in the background as SYSTEM with AboveNormal priority.
   A watchdog and scheduled recovery restart missing or stale processes.
 - Existing configuration is preserved during upgrades. The fan state is read directly
@@ -50,8 +53,9 @@ Run the logic tests (no hibernation performed):
 pwsh -NoProfile -File ./src/Test-Guard.ps1
 ```
 
-Tests require HidSharp.dll in `src/lib`. Version 0.1.1 has 64 passing logic tests.
+Tests require HidSharp.dll in `src/lib`. Version 0.1.2 has 74 passing logic tests.
 Run `./tests/Test-Host.ps1` to verify windowless startup, child cleanup and exit codes.
+Run `./tests/Test-Tray.ps1 -Payload ./build/payload` for an isolated pause/resume/menu test.
 The installer and uninstaller were tested in an isolated directory; actual hibernation
 and the cooler-dependent threshold were also tested locally.
 

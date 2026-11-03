@@ -7,7 +7,7 @@ $csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if($LASTEXITCODE -ne 0) { throw 'Host compilation failed.' }
 & $csc /nologo /target:exe /platform:x64 ("/out:"+(Join-Path $test 'runtime\pwsh.exe')) (Join-Path $PSScriptRoot 'HostProbe.cs')
 if($LASTEXITCODE -ne 0) { throw 'Probe compilation failed.' }
-foreach($mode in @('guard','notifier','watchdog','recovery')) {
+foreach($mode in @('guard','notifier','watchdog','recovery','disable')) {
     $result=Join-Path $test 'probe.txt'
     if(Test-Path $result) { Remove-Item -LiteralPath $result }
     $hostProcess=Start-Process -FilePath (Join-Path $test 'ThermoSaver.Host.exe') -ArgumentList $mode -PassThru
@@ -17,6 +17,7 @@ foreach($mode in @('guard','notifier','watchdog','recovery')) {
     $probe=(Get-Content $result -Raw).Split('|')
     if($probe[1] -ne '0') { throw "Console allocated for $mode." }
     if($mode -eq 'recovery' -and !$probe[2].EndsWith(' -Once')) { throw 'Recovery lost -Once.' }
+    if($mode -eq 'disable' -and !$probe[2].EndsWith(' -Action Disable')) { throw 'Disable lost its action.' }
     if($mode -eq 'notifier') {
         $hostProcess.Kill();$hostProcess.WaitForExit()
         Start-Sleep -Milliseconds 500
@@ -26,4 +27,4 @@ foreach($mode in @('guard','notifier','watchdog','recovery')) {
         if($hostProcess.ExitCode -ne 7) { throw "Exit code not propagated for $mode." }
     }
 }
-Write-Output 'Host tests passed: four modes without a console; exit codes preserved; child cleanup verified.'
+Write-Output 'Host tests passed: five modes without a console; exit codes preserved; child cleanup verified.'
